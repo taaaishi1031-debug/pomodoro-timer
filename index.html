@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>TimeBlock × Pomodoro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0a0a0a;
+      --surface:     #141414;
+      --surface2:    #1c1c1c;
+      --work:        #7d6e59;
+      --work-dim:    #4a4035;
+      --work-light:  #a08f78;
+      --break-ring:  #2a52cc;
+      --break-text:  #5577e8;
+      --text:        #f0f0f0;
+      --text-muted:  #777;
+      --text-dim:    #333;
+      --border:      #1e1e1e;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ══════════════════════════════════
+       APP SHELL  — landscape 2-col grid
+    ══════════════════════════════════ */
+    .app {
+      height: 100dvh;
+      display: grid;
+      grid-template-rows: 40px 1fr 40px;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-title {
+      font-size: 9px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      font-weight: 400;
+    }
+
+    .current-time {
+      font-family: 'Space Mono', monospace;
+      font-size: 13px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+    }
+
+    /* ── Main 2-col ── */
+    .main {
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* LEFT  — timer ring */
+    .timer-panel {
+      width: 44%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      border-right: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .timer-container {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .timer-svg {
+      width: 200px;
+      height: 200px;
+      overflow: visible;
+    }
+
+    /* make it smaller on shorter screens */
+    @media (max-height: 380px) {
+      .timer-svg { width: 160px; height: 160px; }
+      .timer-display { font-size: 36px !important; }
+    }
+    @media (min-height: 500px) {
+      .timer-svg { width: 240px; height: 240px; }
+    }
+
+    .timer-track {
+      fill: none;
+      stroke: var(--surface2);
+      stroke-width: 6;
+    }
+
+    .timer-glow {
+      fill: none;
+      stroke: var(--work);
+      stroke-width: 14;
+      stroke-linecap: round;
+      transform-origin: 50% 50%;
+      transform: rotate(-90deg);
+      opacity: 0.11;
+      filter: blur(6px);
+      transition: stroke 0.5s, stroke-dashoffset 0.8s ease;
+    }
+
+    .timer-ring {
+      fill: none;
+      stroke: var(--work);
+      stroke-width: 6;
+      stroke-linecap: round;
+      transform-origin: 50% 50%;
+      transform: rotate(-90deg);
+      transition: stroke 0.5s, stroke-dashoffset 0.8s ease;
+    }
+
+    .timer-center {
+      position: absolute;
+      text-align: center;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .timer-display {
+      font-family: 'Space Mono', monospace;
+      font-size: 44px;
+      font-weight: 700;
+      letter-spacing: -3px;
+      line-height: 1;
+      color: var(--text);
+    }
+
+    .timer-phase {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--work);
+      margin-top: 8px;
+      transition: color 0.4s;
+    }
+
+    .timer-set-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-weight: 300;
+    }
+
+    /* RIGHT — info + controls */
+    .info-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 28px;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    /* block name + time */
+    .block-info {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .block-name {
+      font-size: 18px;
+      font-weight: 500;
+      letter-spacing: -0.2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .block-time-range {
+      font-family: 'Space Mono', monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+    }
+
+    /* set dots */
+    .set-dots {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 16px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: all 0.4s ease;
+      flex-shrink: 0;
+    }
+
+    .dot.completed    { background: var(--work-dim); }
+    .dot.current-work { background: var(--work); box-shadow: 0 0 8px var(--work-dim); }
+    .dot.current-break{ background: var(--break-ring); box-shadow: 0 0 8px rgba(42,82,204,.4); }
+
+    /* controls */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      cursor: pointer;
+      font-family: 'Inter', sans-serif;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .btn:active { transform: scale(0.90); opacity: 0.75; }
+
+    .btn-primary {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      font-size: 20px;
+      border-color: var(--work);
+      color: var(--work);
+    }
+
+    .btn-primary:hover { background: var(--work); color: var(--bg); }
+
+    .btn-primary.break-mode { border-color: var(--break-ring); color: var(--break-ring); }
+    .btn-primary.break-mode:hover { background: var(--break-ring); color: var(--bg); }
+
+    .btn-secondary {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+
+    .btn-secondary:hover { border-color: var(--text-muted); color: var(--text); }
+
+    /* sound */
+    .sound-toggle { display: flex; }
+
+    .toggle-btn {
+      background: none;
+      border: 1px solid transparent;
+      color: var(--text-dim);
+      font-size: 11px;
+      cursor: pointer;
+      padding: 5px 12px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+      font-family: 'Inter', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .toggle-btn:hover { color: var(--text-muted); }
+    .toggle-btn.on { color: var(--text-muted); border-color: var(--border); }
+
+    /* complete banner — inline in right panel */
+    .complete-banner {
+      display: none;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .complete-banner.show { display: flex; }
+
+    .complete-label {
+      font-size: 9px;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--work);
+    }
+
+    .complete-msg {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 300;
+    }
+
+    /* ══════════════════════════════════
+       SCHEDULE — bottom bar + overlay
+    ══════════════════════════════════ */
+    .schedule-section {
+      position: relative;
+      border-top: 1px solid var(--border);
+    }
+
+    .schedule-toggle {
+      width: 100%;
+      height: 40px;
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 0 20px;
+      font-family: 'Inter', sans-serif;
+      font-size: 9px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: color 0.2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .schedule-toggle:hover { color: var(--text-muted); }
+
+    .schedule-toggle .chevron {
+      display: inline-block;
+      font-style: normal;
+      transition: transform 0.3s ease;
+    }
+
+    .schedule-toggle.open .chevron { transform: rotate(180deg); }
+
+    /* Schedule list rises above the toggle bar */
+    .schedule-list {
+      position: absolute;
+      bottom: 40px;         /* sits above the toggle bar */
+      left: 0;
+      right: 0;
+      max-height: 0;
+      overflow-y: auto;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      overscroll-behavior: contain;
+    }
+
+    .schedule-list.open { max-height: 55dvh; }
+
+    .schedule-item {
+      display: flex;
+      align-items: center;
+      padding: 9px 20px;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+      transition: opacity 0.3s;
+    }
+
+    .schedule-item.current {
+      background: linear-gradient(90deg, rgba(125,110,89,.09) 0%, transparent 70%);
+    }
+
+    .schedule-item.current::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 50%;
+      transform: translateY(-50%);
+      height: 55%; width: 2px;
+      background: var(--work);
+      border-radius: 1px;
+    }
+
+    .schedule-item.completed { opacity: 0.28; }
+    .schedule-item.future    { opacity: 0.42; }
+
+    .item-time {
+      font-family: 'Space Mono', monospace;
+      font-size: 9px;
+      color: var(--text-muted);
+      min-width: 68px;
+      line-height: 1.8;
+    }
+
+    .item-name {
+      flex: 1;
+      font-size: 12px;
+      padding: 0 12px;
+    }
+
+    .schedule-item.current .item-name { color: var(--work-light); font-weight: 500; }
+
+    .item-sets {
+      font-family: 'Space Mono', monospace;
+      font-size: 9px;
+      color: var(--text-dim);
+      min-width: 32px;
+      text-align: right;
+    }
+
+    .schedule-item.current .item-sets { color: var(--work-dim); }
+
+    /* no-block inline label */
+    .no-block-label {
+      display: block;
+      font-size: 9px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 2px;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Header ── -->
+  <div class="header">
+    <div class="app-title">TimeBlock &times; Pomodoro</div>
+    <div class="current-time" id="currentTime">--:--</div>
+  </div>
+
+  <!-- ── Main ── -->
+  <div class="main">
+
+    <!-- LEFT: Timer -->
+    <div class="timer-panel">
+      <div class="timer-container">
+        <svg class="timer-svg" viewBox="0 0 260 260">
+          <circle class="timer-track" cx="130" cy="130" r="110"/>
+          <circle class="timer-glow" id="timerGlow" cx="130" cy="130" r="110"
+            stroke-dasharray="691.15" stroke-dashoffset="0"/>
+          <circle class="timer-ring" id="timerRing" cx="130" cy="130" r="110"
+            stroke-dasharray="691.15" stroke-dashoffset="0"/>
+        </svg>
+        <div class="timer-center">
+          <div class="timer-display"  id="timerDisplay">--:--</div>
+          <div class="timer-phase"    id="timerPhase"></div>
+          <div class="timer-set-label" id="timerSetLabel"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Info + Controls -->
+    <div class="info-panel">
+
+      <div class="block-info">
+        <div class="block-name"       id="blockName"></div>
+        <div class="block-time-range" id="blockTimeRange"></div>
+      </div>
+
+      <div class="set-dots" id="setDots"></div>
+
+      <div class="complete-banner" id="completeBanner">
+        <div class="complete-label">COMPLETE</div>
+        <div class="complete-msg" id="completeMsg"></div>
+      </div>
+
+      <div class="controls">
+        <button class="btn btn-secondary" onclick="resetTimer()" title="リセット">&#8635;</button>
+        <button class="btn btn-primary"   id="playBtn" onclick="toggleTimer()">&#9654;</button>
+        <button class="btn btn-secondary" onclick="skipPhase()"  title="スキップ">&#9197;</button>
+      </div>
+
+      <div class="sound-toggle">
+        <button class="toggle-btn on" id="soundBtn" onclick="toggleSound()">
+          <span id="soundIcon">&#128276;</span>
+          <span id="soundLabel">通知音 ON</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Schedule bottom bar ── -->
+  <div class="schedule-section">
+    <button class="schedule-toggle" id="scheduleToggle" onclick="toggleSchedule()">
+      <span>今日のスケジュール</span>
+      <i class="chevron">&#9650;</i>
+    </button>
+    <div class="schedule-list" id="scheduleList"></div>
+  </div>
+
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// Schedule Data
+// ═══════════════════════════════════════════════
+const SCHEDULE = [
+  { name: 'ジム・ゴルフ',          start: '06:00', end: '07:00', pomodoro: false },
+  { name: 'Podcast作成・投稿',      start: '07:00', end: '08:00', pomodoro: true  },
+  { name: 'プロジェクト業務①',     start: '08:00', end: '09:30', pomodoro: true  },
+  { name: 'Learning English',       start: '09:30', end: '11:00', pomodoro: true  },
+  { name: 'プロジェクト業務②',     start: '11:00', end: '12:30', pomodoro: true  },
+  { name: '昼休憩',                start: '12:30', end: '13:30', pomodoro: false },
+  { name: 'Learning Something',     start: '13:30', end: '15:00', pomodoro: true  },
+  { name: 'プロジェクト業務③',     start: '15:00', end: '16:30', pomodoro: true  },
+  { name: 'FiAt業務',              start: '16:30', end: '18:00', pomodoro: true  },
+  { name: 'Additional Time',        start: '18:00', end: '19:30', pomodoro: true  },
+  { name: 'Super Additional Time',  start: '19:30', end: '21:00', pomodoro: true  },
+];
+
+const WORK_SEC  = 25 * 60;
+const BREAK_SEC = 5  * 60;
+const R    = 110;
+const CIRC = +(2 * Math.PI * R).toFixed(2); // 691.15
+
+// ═══════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════
+let S = {
+  blockIdx:      -1,
+  currentSet:     0,
+  totalSets:      0,
+  phase:         'idle',
+  timeRemaining:  0,
+  totalTime:      0,
+  running:        false,
+  soundOn:        true,
+  blockComplete:  false,
+};
+
+let ticker   = null;
+let audioCtx = null;
+
+// ═══════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════
+function toMin(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; }
+function nowMin() { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+function pad2(n)  { return String(n).padStart(2, '0'); }
+function fmt(sec) { return `${pad2(Math.floor(sec / 60))}:${pad2(sec % 60)}`; }
+
+function getSets(block) {
+  if (!block.pomodoro) return 0;
+  return (toMin(block.end) - toMin(block.start)) / 30;
+}
+
+function currentBlockIdx() {
+  const now = nowMin();
+  return SCHEDULE.findIndex(b => now >= toMin(b.start) && now < toMin(b.end));
+}
+
+function nextBlock() {
+  const now = nowMin();
+  return SCHEDULE.find(b => toMin(b.start) > now) || null;
+}
+
+// ═══════════════════════════════════════════════
+// Audio
+// ═══════════════════════════════════════════════
+function actx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function beep(freq, delay, dur, vol = 0.38) {
+  const c    = actx();
+  const osc  = c.createOscillator();
+  const gain = c.createGain();
+  osc.connect(gain);
+  gain.connect(c.destination);
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  const t = c.currentTime + delay;
+  gain.gain.setValueAtTime(vol, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  osc.start(t);
+  osc.stop(t + dur + 0.05);
+}
+
+function soundWorkEnd()   { beep(880, 0, 0.35); beep(1108, 0.4, 0.35); }
+function soundBreakEnd()  { beep(660, 0, 0.3);  beep(880, 0.35, 0.35); }
+function soundBlockDone() {
+  beep(523, 0, 0.25); beep(659, 0.28, 0.25);
+  beep(784, 0.56, 0.25); beep(1047, 0.84, 0.5);
+}
+
+// ═══════════════════════════════════════════════
+// Timer Logic
+// ═══════════════════════════════════════════════
+function initFreeRun() {
+  S.blockIdx      = -1;
+  S.totalSets     = 0;   // 0 = 無制限
+  S.currentSet    = 0;
+  S.blockComplete = false;
+  S.running       = false;
+  S.phase         = 'work';
+  S.timeRemaining = WORK_SEC;
+  S.totalTime     = WORK_SEC;
+  clearInterval(ticker); ticker = null;
+}
+
+function initBlock(idx) {
+  const b = SCHEDULE[idx];
+  S.blockIdx      = idx;
+  S.totalSets     = getSets(b);
+  S.currentSet    = 0;
+  S.blockComplete = false;
+  S.running       = false;
+  clearInterval(ticker); ticker = null;
+
+  if (!b.pomodoro) {
+    const rem = (toMin(b.end) - nowMin()) * 60;
+    S.phase         = 'countdown';
+    S.timeRemaining = Math.max(rem, 0);
+    S.totalTime     = (toMin(b.end) - toMin(b.start)) * 60;
+  } else {
+    S.phase         = 'work';
+    S.timeRemaining = WORK_SEC;
+    S.totalTime     = WORK_SEC;
+  }
+}
+
+function toggleTimer() {
+  if (S.blockComplete) return;
+  actx();
+  S.running ? pause() : play();
+}
+
+function play() {
+  S.running = true;
+  render();
+  ticker = setInterval(tick, 1000);
+}
+
+function pause() {
+  S.running = false;
+  clearInterval(ticker); ticker = null;
+  render();
+}
+
+function tick() {
+  S.timeRemaining = Math.max(0, S.timeRemaining - 1);
+  if (S.timeRemaining === 0) onPhaseEnd();
+  else render();
+}
+
+function onPhaseEnd() {
+  clearInterval(ticker); ticker = null;
+  S.running = false;
+
+  if (S.phase === 'countdown') {
+    S.blockComplete = true;
+    if (S.soundOn) soundBlockDone();
+    render(); return;
+  }
+
+  if (S.phase === 'work') {
+    if (S.soundOn) soundWorkEnd();
+    S.phase = 'break';
+    S.timeRemaining = BREAK_SEC;
+    S.totalTime = BREAK_SEC;
+    play(); return;
+  }
+
+  const next = S.currentSet + 1;
+  if (S.totalSets > 0 && next >= S.totalSets) {
+    // ブロック完了（スケジュール内のみ）
+    S.blockComplete = true;
+    S.currentSet = S.totalSets;
+    if (S.soundOn) soundBlockDone();
+    render();
+  } else {
+    // 次のセットへ（フリーランは無制限継続）
+    if (S.soundOn) soundBreakEnd();
+    S.currentSet = next;
+    S.phase = 'work';
+    S.timeRemaining = WORK_SEC;
+    S.totalTime = WORK_SEC;
+    play();
+  }
+}
+
+function skipPhase() {
+  if (S.blockComplete) return;
+  actx();
+  clearInterval(ticker); ticker = null;
+  S.running = false;
+  S.timeRemaining = 0;
+  onPhaseEnd();
+}
+
+function resetTimer() {
+  clearInterval(ticker); ticker = null;
+  if (S.blockIdx >= 0) initBlock(S.blockIdx);
+  else initFreeRun();
+  render();
+}
+
+// ═══════════════════════════════════════════════
+// Render
+// ═══════════════════════════════════════════════
+function render() {
+  renderHeader();
+  renderTimer();
+  renderDots();
+  renderControls();
+  renderComplete();
+  renderSchedule();
+}
+
+function renderHeader() {
+  const d = new Date();
+  document.getElementById('currentTime').textContent =
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+  const nameEl  = document.getElementById('blockName');
+  const rangeEl = document.getElementById('blockTimeRange');
+
+  if (S.blockIdx < 0) {
+    const nb = nextBlock();
+    nameEl.innerHTML = '<span class="no-block-label">フリーラン</span>';
+    rangeEl.textContent = nb
+      ? `次のブロック: ${nb.start} — ${nb.name}`
+      : '本日のスケジュールは終了しました';
+  } else {
+    const b = SCHEDULE[S.blockIdx];
+    nameEl.textContent  = b.name;
+    rangeEl.textContent = `${b.start} — ${b.end}`;
+  }
+}
+
+function renderTimer() {
+  const ring     = document.getElementById('timerRing');
+  const glow     = document.getElementById('timerGlow');
+  const display  = document.getElementById('timerDisplay');
+  const phaseEl  = document.getElementById('timerPhase');
+  const setLabel = document.getElementById('timerSetLabel');
+  const playBtn  = document.getElementById('playBtn');
+
+  // blockIdx < 0 はフリーランなので通常通り描画する（以下に続く）
+
+  if (S.blockComplete) {
+    ring.style.strokeDashoffset = CIRC;
+    glow.style.strokeDashoffset = CIRC;
+    ring.style.stroke = 'var(--work-dim)'; glow.style.stroke = 'var(--work-dim)';
+    display.textContent  = '00:00';
+    phaseEl.textContent  = 'COMPLETE';
+    phaseEl.style.color  = 'var(--work)';
+    setLabel.textContent = '';
+    return;
+  }
+
+  const progress = S.totalTime > 0 ? S.timeRemaining / S.totalTime : 1;
+  const offset   = +(CIRC * (1 - progress)).toFixed(2);
+  ring.style.strokeDashoffset = offset;
+  glow.style.strokeDashoffset = offset;
+  display.textContent = fmt(S.timeRemaining);
+
+  if (S.phase === 'work') {
+    ring.style.stroke   = 'var(--work)';
+    glow.style.stroke   = 'var(--work)';
+    phaseEl.style.color = 'var(--work)';
+    phaseEl.textContent = '稼 働 中';
+    setLabel.textContent = S.totalSets > 0
+      ? `セット ${S.currentSet + 1} / ${S.totalSets}`
+      : `セット ${S.currentSet + 1}`;
+    playBtn.classList.remove('break-mode');
+  } else if (S.phase === 'break') {
+    ring.style.stroke   = 'var(--break-ring)';
+    glow.style.stroke   = 'var(--break-ring)';
+    phaseEl.style.color = 'var(--break-text)';
+    phaseEl.textContent = '休 憩 中';
+    const next = S.currentSet + 2;
+    setLabel.textContent = S.totalSets === 0
+      ? `次: セット ${next}`
+      : (next <= S.totalSets ? `次: セット ${next} / ${S.totalSets}` : '最後の休憩');
+    playBtn.classList.add('break-mode');
+  } else {
+    ring.style.stroke   = '#444';
+    glow.style.stroke   = '#444';
+    phaseEl.style.color = 'var(--text-muted)';
+    phaseEl.textContent = 'カウントダウン';
+    setLabel.textContent = '';
+    playBtn.classList.remove('break-mode');
+  }
+}
+
+function renderDots() {
+  const el = document.getElementById('setDots');
+  el.innerHTML = '';
+  if (S.blockIdx < 0 || S.totalSets === 0) return;
+  for (let i = 0; i < S.totalSets; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot';
+    if (i < S.currentSet) {
+      d.classList.add('completed');
+    } else if (i === S.currentSet && !S.blockComplete) {
+      d.classList.add(S.phase === 'break' ? 'current-break' : 'current-work');
+    }
+    el.appendChild(d);
+  }
+}
+
+function renderControls() {
+  document.getElementById('playBtn').innerHTML =
+    S.running ? '&#9646;&#9646;' : '&#9654;';
+}
+
+function renderComplete() {
+  const banner = document.getElementById('completeBanner');
+  const msgEl  = document.getElementById('completeMsg');
+  if (S.blockComplete) {
+    banner.classList.add('show');
+    if (S.blockIdx >= 0) {
+      const b = SCHEDULE[S.blockIdx];
+      msgEl.textContent = b.pomodoro
+        ? `${S.totalSets}セット完了 — お疲れさまでした`
+        : 'ブロック終了';
+    }
+  } else {
+    banner.classList.remove('show');
+  }
+}
+
+function renderSchedule() {
+  const list = document.getElementById('scheduleList');
+  const now  = nowMin();
+  list.innerHTML = '';
+  SCHEDULE.forEach((b, i) => {
+    const item = document.createElement('div');
+    item.className = 'schedule-item';
+    const endMin = toMin(b.end);
+    if      (i === S.blockIdx) item.classList.add('current');
+    else if (now >= endMin)    item.classList.add('completed');
+    else                       item.classList.add('future');
+    const badge = b.pomodoro ? `${getSets(b)}set` : '—';
+    item.innerHTML = `
+      <div class="item-time">${b.start}<br>${b.end}</div>
+      <div class="item-name">${b.name}</div>
+      <div class="item-sets">${badge}</div>
+    `;
+    list.appendChild(item);
+  });
+}
+
+// ═══════════════════════════════════════════════
+// Toggles
+// ═══════════════════════════════════════════════
+function toggleSound() {
+  S.soundOn = !S.soundOn;
+  const btn   = document.getElementById('soundBtn');
+  const icon  = document.getElementById('soundIcon');
+  const label = document.getElementById('soundLabel');
+  if (S.soundOn) {
+    btn.classList.add('on');
+    icon.innerHTML  = '&#128276;';
+    label.textContent = '通知音 ON';
+  } else {
+    btn.classList.remove('on');
+    icon.innerHTML  = '&#128277;';
+    label.textContent = '通知音 OFF';
+  }
+}
+
+function toggleSchedule() {
+  document.getElementById('scheduleList').classList.toggle('open');
+  document.getElementById('scheduleToggle').classList.toggle('open');
+}
+
+// ═══════════════════════════════════════════════
+// Clock — block transition watcher
+// ═══════════════════════════════════════════════
+function clockTick() {
+  const d = new Date();
+  document.getElementById('currentTime').textContent =
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const newIdx = currentBlockIdx();
+  if (newIdx !== S.blockIdx && !S.running) {
+    if (newIdx >= 0) initBlock(newIdx);
+    else initFreeRun();
+    render();
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Boot
+// ═══════════════════════════════════════════════
+(function init() {
+  const idx = currentBlockIdx();
+  if (idx >= 0) initBlock(idx);
+  else initFreeRun();
+  render();
+  setInterval(clockTick, 5000);
+})();
+</script>
+</body>
+</html>
