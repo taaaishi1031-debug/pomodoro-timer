@@ -33,7 +33,6 @@
       -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Shell: header / main / schedule ── */
     .app {
       height: 100dvh;
       display: grid;
@@ -63,7 +62,7 @@
       letter-spacing: 1px;
     }
 
-    /* ── Main: timer centered ── */
+    /* ── Main ── */
     .main {
       display: flex;
       justify-content: center;
@@ -75,25 +74,18 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
       user-select: none;
     }
 
-    .timer-container:active .timer-svg {
-      transform: scale(0.975);
-    }
-
     /*
-      SVG size = fill the available height as much as possible.
-      Available height = 100dvh - 36px header - 36px schedule bar = 100dvh - 72px
-      Also cap by width so it stays circular on wider screens.
+      SVG fills available height.
+      Available = 100dvh - 36px header - 36px schedule = 100dvh - 72px
+      Also capped by width for wide/portrait screens.
     */
     .timer-svg {
       width:  min(calc(100dvh - 80px), 92vw);
       height: min(calc(100dvh - 80px), 92vw);
       overflow: visible;
-      transition: transform 0.12s ease;
     }
 
     .timer-track {
@@ -111,7 +103,8 @@
       transform: rotate(-90deg);
       opacity: 0.1;
       filter: blur(7px);
-      transition: stroke 0.5s, stroke-dashoffset 0.9s ease;
+      transition: stroke 0.6s;
+      /* no transition on dashoffset — updates every second so transition looks wrong */
     }
 
     .timer-ring {
@@ -121,10 +114,10 @@
       stroke-linecap: round;
       transform-origin: 50% 50%;
       transform: rotate(-90deg);
-      transition: stroke 0.5s, stroke-dashoffset 0.9s ease;
+      transition: stroke 0.6s;
     }
 
-    /* ── Timer center content ── */
+    /* ── Center text ── */
     .timer-center {
       position: absolute;
       text-align: center;
@@ -133,14 +126,8 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 0;
     }
 
-    /*
-      Font size scales with SVG size.
-      SVG width = min(100dvh - 80px, 92vw).
-      Time takes ~22% of SVG size.
-    */
     .timer-display {
       font-family: 'Space Mono', monospace;
       font-weight: 700;
@@ -158,9 +145,9 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      /* cap width to roughly inner circle diameter */
       max-width: min(calc((100dvh - 80px) * 0.72), calc(92vw * 0.72));
       font-size: min(calc((100dvh - 80px) * 0.055), calc(92vw * 0.055), 18px);
+      transition: color 0.6s;
     }
 
     /* ── Schedule bottom bar ── */
@@ -272,7 +259,7 @@
   </div>
 
   <div class="main">
-    <div class="timer-container" onclick="toggleTimer()">
+    <div class="timer-container">
       <svg class="timer-svg" viewBox="0 0 260 260">
         <circle class="timer-track" cx="130" cy="130" r="110"/>
         <circle class="timer-glow" id="timerGlow" cx="130" cy="130" r="110"
@@ -281,7 +268,7 @@
           stroke-dasharray="691.15" stroke-dashoffset="0"/>
       </svg>
       <div class="timer-center">
-        <div class="timer-display"   id="timerDisplay">--:--</div>
+        <div class="timer-display"    id="timerDisplay">--:--</div>
         <div class="inner-block-name" id="innerBlockName"></div>
       </div>
     </div>
@@ -296,8 +283,10 @@
   </div>
 
 </div>
-
 <script>
+// ═══════════════════════════════════════════════
+// Schedule
+// ═══════════════════════════════════════════════
 const SCHEDULE = [
   { name: 'ジム・ゴルフ',          start: '06:00', end: '07:00', pomodoro: false },
   { name: 'Podcast作成・投稿',      start: '07:00', end: '08:00', pomodoro: true  },
@@ -312,177 +301,170 @@ const SCHEDULE = [
   { name: 'Super Additional Time',  start: '19:30', end: '21:00', pomodoro: true  },
 ];
 
-const WORK_SEC  = 25 * 60;
-const BREAK_SEC = 5  * 60;
+const WORK_SEC  = 25 * 60;  // 1500
+const BREAK_SEC = 5  * 60;  // 300
+const SET_SEC   = WORK_SEC + BREAK_SEC; // 1800 (30 min)
 const R    = 110;
 const CIRC = +(2 * Math.PI * R).toFixed(2); // 691.15
 
-let S = {
-  blockIdx:      -1,
-  currentSet:    0,
-  totalSets:     0,
-  phase:        'work',
-  timeRemaining: WORK_SEC,
-  totalTime:     WORK_SEC,
-  running:       false,
-  blockComplete: false,
-};
-
-let ticker = null, audioCtx = null;
-
 // ── Helpers ──
-function toMin(t) { const [h,m] = t.split(':').map(Number); return h*60+m; }
-function nowMin() { const d = new Date(); return d.getHours()*60+d.getMinutes(); }
-function pad2(n)  { return String(n).padStart(2,'0'); }
-function fmt(sec) { return `${pad2(Math.floor(sec/60))}:${pad2(sec%60)}`; }
-function getSets(b) { return b.pomodoro ? (toMin(b.end)-toMin(b.start))/30 : 0; }
+function toMin(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; }
+function pad2(n)  { return String(n).padStart(2, '0'); }
+function fmt(sec) { return `${pad2(Math.floor(sec / 60))}:${pad2(sec % 60)}`; }
+function getSets(b) {
+  return b.pomodoro ? (toMin(b.end) - toMin(b.start)) / 30 : 0;
+}
+function nowSec() {
+  const d = new Date();
+  return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+}
 function currentBlockIdx() {
-  const now = nowMin();
+  const now = Math.floor(nowSec() / 60);
   return SCHEDULE.findIndex(b => now >= toMin(b.start) && now < toMin(b.end));
 }
 
-// ── Audio ──
+// ═══════════════════════════════════════════════
+// Core: compute current timer state from real time
+// ═══════════════════════════════════════════════
+function computeState() {
+  const secs     = nowSec();
+  const blockIdx = currentBlockIdx();
+
+  if (blockIdx >= 0) {
+    const b = SCHEDULE[blockIdx];
+
+    // Non-pomodoro block: simple countdown to block end
+    if (!b.pomodoro) {
+      const endSec = toMin(b.end) * 60;
+      return {
+        phase:         'countdown',
+        timeRemaining: endSec - secs,
+        totalTime:     (toMin(b.end) - toMin(b.start)) * 60,
+        blockName:     b.name,
+        blockIdx,
+      };
+    }
+
+    // Pomodoro block: calculate position within cycle
+    const blockStartSec = toMin(b.start) * 60;
+    const elapsed       = secs - blockStartSec;          // seconds since block start
+    const totalSets     = getSets(b);
+    const setIdx        = Math.min(Math.floor(elapsed / SET_SEC), totalSets - 1);
+    const posInSet      = elapsed - setIdx * SET_SEC;    // 0..1799
+
+    if (posInSet < WORK_SEC) {
+      return {
+        phase:         'work',
+        timeRemaining: WORK_SEC - posInSet,
+        totalTime:     WORK_SEC,
+        blockName:     b.name,
+        blockIdx,
+        currentSet:    setIdx,
+        totalSets,
+      };
+    } else {
+      return {
+        phase:         'break',
+        timeRemaining: SET_SEC - posInSet,   // = BREAK_SEC - (posInSet - WORK_SEC)
+        totalTime:     BREAK_SEC,
+        blockName:     b.name,
+        blockIdx,
+        currentSet:    setIdx,
+        totalSets,
+      };
+    }
+  }
+
+  // Outside schedule: free-run aligned to absolute clock (30-min cycle from midnight)
+  const cyclePos = secs % SET_SEC;
+  if (cyclePos < WORK_SEC) {
+    return {
+      phase:         'work',
+      timeRemaining: WORK_SEC - cyclePos,
+      totalTime:     WORK_SEC,
+      blockName:     'フリーラン',
+      blockIdx:      -1,
+    };
+  } else {
+    return {
+      phase:         'break',
+      timeRemaining: SET_SEC - cyclePos,
+      totalTime:     BREAK_SEC,
+      blockName:     'フリーラン',
+      blockIdx:      -1,
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════
+// Audio
+// ═══════════════════════════════════════════════
+let audioCtx = null;
+
 function actx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return audioCtx;
 }
-function beep(freq, delay, dur, vol=0.38) {
-  const c=actx(), osc=c.createOscillator(), g=c.createGain();
+
+function beep(freq, delay, dur, vol = 0.38) {
+  const c = actx(), osc = c.createOscillator(), g = c.createGain();
   osc.connect(g); g.connect(c.destination);
-  osc.type='sine'; osc.frequency.value=freq;
-  const t=c.currentTime+delay;
-  g.gain.setValueAtTime(vol,t);
-  g.gain.exponentialRampToValueAtTime(0.001,t+dur);
-  osc.start(t); osc.stop(t+dur+0.05);
-}
-function soundWorkEnd()   { beep(880,0,0.35); beep(1108,0.4,0.35); }
-function soundBreakEnd()  { beep(660,0,0.3);  beep(880,0.35,0.35); }
-function soundBlockDone() {
-  beep(523,0,0.25); beep(659,0.28,0.25);
-  beep(784,0.56,0.25); beep(1047,0.84,0.5);
+  osc.type = 'sine'; osc.frequency.value = freq;
+  const t = c.currentTime + delay;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  osc.start(t); osc.stop(t + dur + 0.05);
 }
 
-// ── Init ──
-function initFreeRun() {
-  S.blockIdx=-1; S.totalSets=0; S.currentSet=0;
-  S.blockComplete=false; S.running=false;
-  S.phase='work'; S.timeRemaining=WORK_SEC; S.totalTime=WORK_SEC;
-  clearInterval(ticker); ticker=null;
-}
+function soundWorkEnd()  { beep(880, 0, 0.35); beep(1108, 0.4, 0.35); }
+function soundBreakEnd() { beep(660, 0, 0.3);  beep(880, 0.35, 0.35); }
 
-function initBlock(idx) {
-  const b=SCHEDULE[idx];
-  S.blockIdx=idx; S.totalSets=getSets(b);
-  S.currentSet=0; S.blockComplete=false; S.running=false;
-  clearInterval(ticker); ticker=null;
-  if (!b.pomodoro) {
-    S.phase='countdown';
-    S.timeRemaining=Math.max((toMin(b.end)-nowMin())*60,0);
-    S.totalTime=(toMin(b.end)-toMin(b.start))*60;
-  } else {
-    S.phase='work'; S.timeRemaining=WORK_SEC; S.totalTime=WORK_SEC;
-  }
-}
-
-// ── Timer ──
-function toggleTimer() {
-  if (S.blockComplete) return;
-  actx();
-  S.running ? pause() : play();
-}
-
-function play() {
-  S.running=true; render();
-  ticker=setInterval(tick,1000);
-}
-
-function pause() {
-  S.running=false;
-  clearInterval(ticker); ticker=null;
-  render();
-}
-
-function tick() {
-  S.timeRemaining=Math.max(0,S.timeRemaining-1);
-  if (S.timeRemaining===0) onPhaseEnd(); else render();
-}
-
-function onPhaseEnd() {
-  clearInterval(ticker); ticker=null; S.running=false;
-
-  if (S.phase==='countdown') {
-    S.blockComplete=true; soundBlockDone(); render(); return;
-  }
-  if (S.phase==='work') {
-    soundWorkEnd();
-    S.phase='break'; S.timeRemaining=BREAK_SEC; S.totalTime=BREAK_SEC;
-    play(); return;
-  }
-  // break ended
-  const next=S.currentSet+1;
-  if (S.totalSets>0 && next>=S.totalSets) {
-    S.blockComplete=true; S.currentSet=S.totalSets;
-    soundBlockDone(); render();
-  } else {
-    soundBreakEnd();
-    S.currentSet=next;
-    S.phase='work'; S.timeRemaining=WORK_SEC; S.totalTime=WORK_SEC;
-    play();
-  }
-}
-
-// ── Render ──
-function render() {
-  // clock
-  const d=new Date();
-  document.getElementById('currentTime').textContent=
+// ═══════════════════════════════════════════════
+// Render
+// ═══════════════════════════════════════════════
+function render(st) {
+  // Clock
+  const d = new Date();
+  document.getElementById('currentTime').textContent =
     `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 
-  // ring
-  const ring=document.getElementById('timerRing');
-  const glow=document.getElementById('timerGlow');
-  const disp=document.getElementById('timerDisplay');
-  const name=document.getElementById('innerBlockName');
+  // Ring
+  const ring    = document.getElementById('timerRing');
+  const glow    = document.getElementById('timerGlow');
+  const disp    = document.getElementById('timerDisplay');
+  const nameEl  = document.getElementById('innerBlockName');
 
-  // block name
-  const blockName = S.blockIdx>=0 ? SCHEDULE[S.blockIdx].name : 'フリーラン';
-  name.textContent = S.blockComplete ? blockName : blockName;
+  const progress = st.totalTime > 0 ? st.timeRemaining / st.totalTime : 1;
+  const offset   = +(CIRC * (1 - progress)).toFixed(2);
+  ring.style.strokeDashoffset = offset;
+  glow.style.strokeDashoffset = offset;
 
-  if (S.blockComplete) {
-    ring.style.strokeDashoffset=glow.style.strokeDashoffset=CIRC;
-    ring.style.stroke=glow.style.stroke='var(--work-dim)';
-    disp.textContent='00:00';
-    name.style.color='var(--work-dim)';
+  disp.textContent  = fmt(st.timeRemaining);
+  nameEl.textContent = st.blockName;
+
+  if (st.phase === 'break') {
+    ring.style.stroke = glow.style.stroke = 'var(--break-ring)';
+    nameEl.style.color = '#5577e8';
+  } else if (st.phase === 'countdown') {
+    ring.style.stroke = glow.style.stroke = '#383838';
+    nameEl.style.color = 'var(--text-muted)';
   } else {
-    const progress=S.totalTime>0 ? S.timeRemaining/S.totalTime : 1;
-    const offset=+(CIRC*(1-progress)).toFixed(2);
-    ring.style.strokeDashoffset=glow.style.strokeDashoffset=offset;
-    disp.textContent=fmt(S.timeRemaining);
-
-    if (S.phase==='break') {
-      ring.style.stroke=glow.style.stroke='var(--break-ring)';
-      name.style.color='#5577e8';
-    } else if (S.phase==='countdown') {
-      ring.style.stroke=glow.style.stroke='#3a3a3a';
-      name.style.color='var(--text-muted)';
-    } else {
-      ring.style.stroke=glow.style.stroke='var(--work)';
-      name.style.color='var(--text-muted)';
-    }
+    ring.style.stroke = glow.style.stroke = 'var(--work)';
+    nameEl.style.color = 'var(--text-muted)';
   }
 
-  // schedule list
-  const list=document.getElementById('scheduleList');
-  const now=nowMin();
-  list.innerHTML='';
-  SCHEDULE.forEach((b,i) => {
-    const item=document.createElement('div');
-    item.className='schedule-item';
-    if      (i===S.blockIdx)      item.classList.add('current');
-    else if (now>=toMin(b.end))   item.classList.add('completed');
-    else                          item.classList.add('future');
-    const badge=b.pomodoro ? `${getSets(b)}set` : '—';
-    item.innerHTML=`
+  // Schedule list
+  const list = document.getElementById('scheduleList');
+  const nowM = Math.floor(nowSec() / 60);
+  list.innerHTML = '';
+  SCHEDULE.forEach((b, i) => {
+    const item = document.createElement('div');
+    item.className = 'schedule-item';
+    if      (i === st.blockIdx)      item.classList.add('current');
+    else if (nowM >= toMin(b.end))   item.classList.add('completed');
+    else                             item.classList.add('future');
+    const badge = b.pomodoro ? `${getSets(b)}set` : '—';
+    item.innerHTML = `
       <div class="item-time">${b.start}<br>${b.end}</div>
       <div class="item-name">${b.name}</div>
       <div class="item-sets">${badge}</div>
@@ -491,30 +473,52 @@ function render() {
   });
 }
 
+// ═══════════════════════════════════════════════
+// Tick — runs every second, derives state from clock
+// ═══════════════════════════════════════════════
+let prevPhase     = null;
+let prevBlockIdx  = null;
+let audioUnlocked = false;
+
+function tick() {
+  const st = computeState();
+
+  // Sound on phase transitions (only after first render to avoid false triggers)
+  if (prevPhase !== null && audioUnlocked) {
+    if (prevPhase === 'work'  && st.phase === 'break') soundWorkEnd();
+    if (prevPhase === 'break' && st.phase === 'work')  soundBreakEnd();
+  }
+
+  prevPhase    = st.phase;
+  prevBlockIdx = st.blockIdx;
+
+  render(st);
+}
+
+// Unlock AudioContext on first user interaction
+function unlockAudio() {
+  actx();
+  audioUnlocked = true;
+  document.removeEventListener('touchstart', unlockAudio);
+  document.removeEventListener('click', unlockAudio);
+}
+
+document.addEventListener('touchstart', unlockAudio, { once: true });
+document.addEventListener('click',      unlockAudio, { once: true });
+
+// ═══════════════════════════════════════════════
+// Schedule toggle
+// ═══════════════════════════════════════════════
 function toggleSchedule() {
   document.getElementById('scheduleList').classList.toggle('open');
   document.getElementById('scheduleToggle').classList.toggle('open');
 }
 
-// ── Clock loop ──
-function clockTick() {
-  const d=new Date();
-  document.getElementById('currentTime').textContent=
-    `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  const newIdx=currentBlockIdx();
-  if (newIdx!==S.blockIdx && !S.running) {
-    if (newIdx>=0) initBlock(newIdx); else initFreeRun();
-    render();
-  }
-}
-
-// ── Boot ──
-(function init() {
-  const idx=currentBlockIdx();
-  if (idx>=0) initBlock(idx); else initFreeRun();
-  render();
-  setInterval(clockTick,5000);
-})();
+// ═══════════════════════════════════════════════
+// Boot
+// ═══════════════════════════════════════════════
+tick();
+setInterval(tick, 1000);
 </script>
 </body>
 </html>
